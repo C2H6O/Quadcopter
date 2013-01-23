@@ -10,6 +10,7 @@ float _meterPerSecSec[3] = {0.0,0.0,0.0};
 long _accelSample[3] = {0,0,0};
 byte _accelSampleCount = 0;
 //int _accelAngles[2] = {0,0};
+//int _accelAngles[2] = {0,0};
 float AxrAcc, AyrAcc, AzrAcc,Rvect;
 int AxrAcc_int, AyrAcc_int, AzrAcc_int;
 
