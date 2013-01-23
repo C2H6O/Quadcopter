@@ -1,0 +1,84 @@
+#include <MatrixMath.h>
+
+//#define unsigned char byte
+#include "AQMath.h"
+#include "FourtOrderFilter.h"
+#include "Arduino.h"
+
+#include "GlobalDefined.h"
+#include "SensorsStatus.h"
+#include "KalmanFilter.h"
+#include "ADXL345.h"
+#include "ITG3200.h"
+#include "Device_I2C.h"
+#include "Wire.h"
+
+ADXL345  adxl345;
+int* adxl345_angles_main;
+int* adxl345_angles_temp;
+
+ITG3200 itg3200;
+float* itg3200_gyroRate_main;
+float* itg3200_gyroRate_temp;
+int itg3200_angle;
+
+KalmanFilter KF1;
+int* KalmanAngles;
+
+unsigned long timer;
+
+void setup() {
+
+  Serial.begin(115200);
+  Wire.begin();
+
+  adxl345.initializeAccel();
+  adxl345.computeAccelBias();
+
+  itg3200.initializeGyro();
+  itg3200.calibrateGyro();
+
+  timer = millis();
+  
+  adxl345_angles_main = (int*) malloc(2*sizeof(int));
+  adxl345_angles_temp = (int*) malloc(2*sizeof(int));
+  itg3200_gyroRate_main = (float*) malloc(3*sizeof(float));
+  itg3200_gyroRate_temp = (float*) malloc(3*sizeof(float));
+  KalmanAngles = (int*) malloc(2*sizeof(int));
+
+  KF1.KalmanInitialize(adxl345_angles_main, itg3200_gyroRate_main);
+
+}
+
+void loop() {
+
+  if((millis() - timer) > 10) // 100Hz
+  {
+
+    timer = millis();
+//KALMAN FILTER
+    adxl345.measureAccel();
+    adxl345.calculateAngles();
+    adxl345_angles_temp = adxl345.getAccelAngles();
+    adxl345_angles_main[0] = adxl345_angles_temp[0];
+    adxl345_angles_main[1] = adxl345_angles_temp[1];
+    adxl345_angles_main[2] = adxl345_angles_temp[2];
+    itg3200.measureGyro();
+    itg3200_gyroRate_temp = itg3200.getGyroRate();
+    itg3200_gyroRate_main[0] = itg3200_gyroRate_temp[0];
+    itg3200_gyroRate_main[0] = itg3200_gyroRate_temp[0];
+    itg3200_gyroRate_main[0] = itg3200_gyroRate_temp[0];
+    KalmanAngles = KF1.KalmanAngles();
+//KALMAN FILTER
+
+
+  }
+  free(adxl345_angles_main);
+  *adxl345_angles_main = NULL;
+  free(itg3200_gyroRate_main);
+  *itg3200_gyroRate_main = NULL;
+
+
+}
+
+

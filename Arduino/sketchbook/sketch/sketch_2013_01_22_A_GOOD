@@ -1,0 +1,61 @@
+//#define unsigned char byte
+#include "AQMath.h"
+#include "Arduino.h"
+#include "GlobalDefined.h"
+#include "ADXL345.h"
+#include "ITG3200.h"
+#include "Device_I2C.h"
+#include "Wire.h"
+#include "KalmanFilter.h"
+#include "MatrixMath.h"
+
+// Accelerometer
+ADXL345  adxl345;
+int   adxl345_angles[2];          
+  //  adxl345_angles[0] = ROLL [degrees]
+  //  adxl345_angles[1] = PITCH [degrees]
+
+// Gyroscope
+ITG3200 itg3200;
+float   itg3200_gyroRate[3];
+  //    itg3200_gyroRate[0] = ROLL [degrees/sec]
+  //    itg3200_gyroRate[1] = PITCH [degrees/sec]
+  //    itg3200_gyroRate[2] = YAW [degrees/sec]
+
+//Kalman filter
+KalmanFilter KF_1;
+int KalmanFilterAngles[2];      
+    // KalmanFilterAngles[0] = ROLL [degrees]
+    // KalmanFilterAngles[1] = PITCH [degrees]
+
+unsigned long timer;
+unsigned long endtime;
+
+void setup() {
+
+  Serial.begin(115200);
+  Wire.begin();
+
+  adxl345.AccelerometerInit();
+  itg3200.GyroscopeInit();
+  KF_1.KalmanFilterInit(adxl345_angles, itg3200_gyroRate);
+
+  timer = millis();
+}
+
+void loop() {
+
+  if((millis() - timer) > 10) // 100Hz
+  {
+
+    timer = millis();
+    adxl345.getAccelAngles(adxl345_angles);
+    itg3200.getGyroRate(itg3200_gyroRate);
+    KF_1.KalmanFilterUpdateAngles(KalmanFilterAngles);
+    endtime = millis();
+    Serial.println(endtime-timer,DEC);
+  }
+
+}
+
+

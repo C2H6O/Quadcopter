@@ -1,0 +1,250 @@
+#include <MatrixMath.h>
+
+//#define unsigned char byte
+#include "AQMath.h"
+#include "FourtOrderFilter.h"
+#include "Arduino.h"
+
+#include "GlobalDefined.h"
+#include "SensorsStatus.h"
+
+#include "ADXL345.h"
+
+#include <ITG3200.h>
+
+#include "Device_I2C.h"
+#include "Wire.h"
+
+ADXL345  adxl345;
+int* adxl345_angles;
+
+ITG3200 itg3200;
+float* itg3200_gyroRate;
+int itg3200_angle;
+
+int P1_corr_angle;
+int P2_corr_angle;
+
+//Kalman filter variables
+MatrixMath matrixMath;
+
+float A[2][2];
+float At[2][2];
+float C[2];
+
+float P1_x_k[2];
+float P1_x_k_1[2];
+float P1_K_Inn[2];
+float P1_Inn;
+float P1_s;
+float P1_K[2];
+float P1_K_temp1[2][2];
+float P1_K_temp2[2];
+float P1_s_temp1[2];
+float P1_s_temp2[1];
+float P1_P[2][2];
+float P1_A_P[2][2];
+float P1_A_P_At[2][2];
+float P1_K_C[2][2];
+float P1_K_C_P[2][2];
+float P1_K_C_P_At[2][2];
+float P1_A_P_At_K_C_P_At[2][2];
+
+float P2_x_k[2];
+float P2_x_k_1[2];
+float P2_K_Inn[2];
+float P2_Inn;
+float P2_s;
+float P2_K[2];
+float P2_K_temp1[2][2];
+float P2_K_temp2[2];
+float P2_s_temp1[2];
+float P2_s_temp2[1];
+float P2_P[2][2];
+float P2_A_P[2][2];
+float P2_A_P_At[2][2];
+float P2_K_C[2][2];
+float P2_K_C_P[2][2];
+float P2_K_C_P_At[2][2];
+float P2_A_P_At_K_C_P_At[2][2];
+
+////TEST
+float P1_test_x_k[2];
+float P1_test_x_k_1[2];
+float P1_test_temp[2];
+
+float P2_test_x_k[2];
+float P2_test_x_k_1[2];
+float P2_test_temp[2];
+//\\TEST
+
+
+
+float Sw[2][2];
+float alpha_noise = 0.01;
+float bias_noise = 5;
+float Sz = 20;
+unsigned long timer;
+
+void setup() {
+
+  Serial.begin(115200);
+  Wire.begin();
+
+  adxl345.initializeAccel();
+  adxl345.computeAccelBias();
+
+  itg3200.initializeGyro();
+  itg3200.calibrateGyro();
+
+  timer = millis();
+  adxl345_angles = (int*) malloc(2*sizeof(int));
+  itg3200_gyroRate = (float*) malloc(3*sizeof(float));
+
+  float dT = 0.01;
+  A[0][0] = 1;
+  A[0][1] = dT;
+  A[1][0] = 0;
+  A[1][1] = 1;
+
+  At[0][0] = 1;
+  At[0][1] = 0;
+  At[1][0] = dT;
+  At[1][1] = 1;
+
+  C[0] = 1;
+  C[1] = 0;
+
+  P1_P[0][0] = 1;
+  P1_P[0][1] = 1;
+  P1_P[1][0] = 1;
+  P1_P[1][1] = 1;
+
+  P2_P[0][0] = 1;
+  P2_P[0][1] = 1;
+  P2_P[1][0] = 1;
+  P2_P[1][1] = 1;   
+
+  Sw[0][0] = alpha_noise*alpha_noise;
+  Sw[0][1] = alpha_noise*bias_noise;
+  Sw[1][0] = Sw[0][1];
+  Sw[1][1] = bias_noise*bias_noise;
+}
+
+void loop() {
+
+  if((millis() - timer) > 10) // 100Hz
+  {
+
+    timer = millis();
+    adxl345.measureAccel();
+    adxl345.calculateAngles();
+    adxl345_angles = adxl345.getAccelAngles();
+
+    itg3200.measureGyro();
+    itg3200_gyroRate = itg3200.getGyroRate();
+
+    matrixMath.MatrixCopy((float*)P1_x_k,2,1,(float*)P1_x_k_1);
+    matrixMath.MatrixCopy((float*)P2_x_k,2,1,(float*)P2_x_k_1);
+
+    P1_x_k_1[1] = itg3200_gyroRate[0];
+    P2_x_k_1[1] = itg3200_gyroRate[1];    
+
+    matrixMath.MatrixMult((float*)A,(float*)P1_x_k_1,2,2,1,(float*)P1_x_k);  
+    matrixMath.MatrixMult((float*)A,(float*)P2_x_k_1,2,2,1,(float*)P2_x_k);  
+
+    P1_Inn = adxl345_angles[0]-P1_x_k[0];                                       
+    P2_Inn = adxl345_angles[1]-P2_x_k[0];  
+
+    //test
+    matrixMath.MatrixCopy((float*)P1_test_x_k,2,1,(float*)P1_test_x_k_1);
+    P1_test_x_k_1[1] = itg3200_gyroRate[0];
+    matrixMath.MatrixMult((float*)A,(float*)P1_test_x_k_1,2,2,1,(float*)P1_test_temp);
+    P1_test_x_k[0] = P1_test_temp[0];
+    P1_test_x_k[1] = P1_test_temp[1];
+    
+    matrixMath.MatrixCopy((float*)P2_test_x_k,2,1,(float*)P2_test_x_k_1);
+    P2_test_x_k_1[1] = itg3200_gyroRate[0];
+    matrixMath.MatrixMult((float*)A,(float*)P2_test_x_k_1,2,2,1,(float*)P2_test_temp);
+    P2_test_x_k[0] = P2_test_temp[0];
+    P2_test_x_k[1] = P2_test_temp[1];
+
+    Serial.print((int)P1_test_x_k[0],DEC);
+    Serial.print(",");
+    Serial.print((int)P2_test_x_k[0],DEC);
+    Serial.print(",");
+    
+    Serial.print(adxl345_angles[0],DEC);
+    Serial.print(",");
+    
+    Serial.print(adxl345_angles[1],DEC);
+    Serial.print(",");
+    
+    matrixMath.MatrixMult((float*)C,(float*)P1_P,1,2,2,(float*)P1_s_temp1);
+    matrixMath.MatrixMult((float*)P1_s_temp1,(float*)C,1,2,1,(float*)P1_s_temp2);
+    P1_s = P1_s_temp2[0] + Sz;
+
+    matrixMath.MatrixMult((float*)C,(float*)P2_P,1,2,2,(float*)P2_s_temp1);
+    matrixMath.MatrixMult((float*)P2_s_temp1,(float*)C,1,2,1,(float*)P2_s_temp2);
+    P2_s = P2_s_temp2[0] + Sz;
+
+    matrixMath.MatrixMult((float*)A,(float*)P1_P,2,2,2,(float*)P1_K_temp1);
+    matrixMath.MatrixMult((float*)P1_K_temp1,(float*)C, 2,2,1,(float*)P1_K_temp2);
+
+    P1_K[0] = P1_K_temp2[0]/P1_s;
+    P1_K[1] = P1_K_temp2[1]/P1_s;
+
+
+    P1_K_Inn[0] = P1_K[0]*P1_Inn;
+    P1_K_Inn[1] = P1_K[1]*P1_Inn;
+    
+    matrixMath.MatrixMult((float*)A,(float*)P2_P,2,2,2,(float*)P2_K_temp1);
+    matrixMath.MatrixMult((float*)P2_K_temp1,(float*)C, 2,2,1,(float*)P2_K_temp2);
+
+    P2_K[0] = P2_K_temp2[0]/P2_s;
+    P2_K[1] = P2_K_temp2[1]/P2_s;
+
+    P2_K_Inn[0] = P2_K[0]*P2_Inn;
+    P2_K_Inn[1] = P2_K[1]*P2_Inn;    
+    
+    matrixMath.MatrixAdd((float*)P1_x_k,(float*)P1_K_Inn, 2,1,(float*)P1_x_k);
+    P1_corr_angle = (int)P1_x_k[0];
+    Serial.print(P1_corr_angle,DEC);  // Roll angle
+    Serial.print(",");
+    
+    matrixMath.MatrixAdd((float*)P2_x_k,(float*)P2_K_Inn, 2,1,(float*)P2_x_k);
+    P2_corr_angle = (int)P2_x_k[0];
+    Serial.print(P2_corr_angle,DEC);  // Pitch angle
+    Serial.println();
+
+
+
+    matrixMath.MatrixMult((float*)P1_K,(float*)C,2,1,2,(float*)P1_K_C);
+    matrixMath.MatrixMult((float*)P1_K_C,(float*)P1_P,2,2,2,(float*)P1_K_C_P);
+    matrixMath.MatrixMult((float*)P1_K_C_P,(float*)At,2,2,2,(float*)P1_K_C_P_At);
+    matrixMath.MatrixMult((float*)A,(float*)P1_P,2,2,2,(float*)P1_A_P);
+    matrixMath.MatrixMult((float*)P1_A_P,(float*)At,2,2,2,(float*)P1_A_P_At);
+    matrixMath.MatrixSubtract((float*)P1_A_P_At,(float*)P1_K_C_P_At,2,2,(float*)P1_A_P_At_K_C_P_At);
+    matrixMath.MatrixAdd((float*)P1_A_P_At_K_C_P_At,(float*)Sw,2,2,(float*)P1_P);
+    
+    matrixMath.MatrixMult((float*)P2_K,(float*)C,2,1,2,(float*)P2_K_C);
+    matrixMath.MatrixMult((float*)P2_K_C,(float*)P2_P,2,2,2,(float*)P2_K_C_P);
+    matrixMath.MatrixMult((float*)P2_K_C_P,(float*)At,2,2,2,(float*)P2_K_C_P_At);
+    matrixMath.MatrixMult((float*)A,(float*)P1_P,2,2,2,(float*)P2_A_P);
+    matrixMath.MatrixMult((float*)P2_A_P,(float*)At,2,2,2,(float*)P2_A_P_At);
+    matrixMath.MatrixSubtract((float*)P2_A_P_At,(float*)P2_K_C_P_At,2,2,(float*)P2_A_P_At_K_C_P_At);
+    matrixMath.MatrixAdd((float*)P2_A_P_At_K_C_P_At,(float*)Sw,2,2,(float*)P2_P);
+    
+    //matrixMath.MatrixPrint((float*)P1_P,2,2);
+    //matrixMath.MatrixPrint((float*)P2_P,2,2);
+
+  }
+  free(adxl345_angles);
+  *adxl345_angles = NULL;
+  free(itg3200_gyroRate);
+  *itg3200_gyroRate = NULL;
+
+
+}
+
+
